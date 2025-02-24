@@ -411,17 +411,18 @@ FN_INTERNAL int fnusb_open_subdevices(freenect_device *dev, int index)
 		return -1;
 
 	libusb_device *camera = NULL;
+	libusb_device *audio = NULL;
+	struct libusb_device_descriptor camera_desc;
 
 	int res = 0;
 	int i = 0, nr_cam = 0;
 	for (i = 0; i < count; i++)
 	{
-		struct libusb_device_descriptor desc;
-		res = libusb_get_device_descriptor(devs[i], &desc);
+		res = libusb_get_device_descriptor(devs[i], &camera_desc);
 		if (res < 0)
 			continue;
 
-		if (!fnusb_is_camera(desc))
+		if (!fnusb_is_camera(camera_desc))
 		{
 			continue;
 		}
@@ -433,53 +434,6 @@ FN_INTERNAL int fnusb_open_subdevices(freenect_device *dev, int index)
 		}
 
 		camera = devs[i]; // found the requested camera
-		if (ctx->enabled_subdevices & FREENECT_DEVICE_CAMERA)
-		{
-			res = libusb_open(camera, &dev->usb_cam.dev);
-			if (res < 0 || !dev->usb_cam.dev)
-			{
-				FN_ERROR("Could not open camera: %s\n", libusb_error_name(res));
-				dev->usb_cam.dev = NULL;
-				goto failure;
-			}
-
-			if (desc.idProduct == PID_K4W_CAMERA || desc.bcdDevice != fn_le32(267))
-			{
-				freenect_device_flags requested_devices = ctx->enabled_subdevices;
-
-				// Not the 1414 kinect so remove the motor flag, this should preserve the audio flag if set
-				ctx->enabled_subdevices = (freenect_device_flags)(ctx->enabled_subdevices & ~FREENECT_DEVICE_MOTOR);
-
-				ctx->zero_plane_res = 334;
-				dev->device_does_motor_control_with_audio = 1;
-
-				// set the LED for non 1414 devices to keep the camera alive for some systems which get freezes
-				libusb_device *audio = fnusb_find_sibling_device(ctx, camera, devs, count, &fnusb_is_audio);
-				fnusb_keep_alive_led(ctx, audio);
-
-				// for newer devices we need to enable the audio device for motor control
-				// we only do this though if motor has been requested.
-				if ((requested_devices & FREENECT_DEVICE_MOTOR) && (requested_devices & FREENECT_DEVICE_AUDIO) == 0)
-				{
-					ctx->enabled_subdevices = (freenect_device_flags)(ctx->enabled_subdevices | FREENECT_DEVICE_AUDIO);
-				}
-			}
-			else
-			{
-				// The good old kinect that tilts and tweets
-				ctx->zero_plane_res = 322;
-			}
-
-			dev->usb_cam.VID = desc.idVendor;
-			dev->usb_cam.PID = desc.idProduct;
-
-			res = fnusb_claim_camera(dev);
-			if (res < 0)
-			{
-				goto failure;
-			}
-		}
-
 		break;
 	}
 
@@ -489,57 +443,39 @@ FN_INTERNAL int fnusb_open_subdevices(freenect_device *dev, int index)
 		goto failure;
 	}
 
-	// FIND MOTOR
-	if (ctx->enabled_subdevices & FREENECT_DEVICE_MOTOR)
+	// Finds audio interface. Necessary if the device is not the 1414 kinect or if requested by the user.
+	if (ctx->enabled_subdevices & FREENECT_DEVICE_AUDIO || camera_desc.idProduct == PID_K4W_CAMERA || camera_desc.bcdDevice != fn_le32(267))
 	{
-		libusb_device *motor = fnusb_find_sibling_device(ctx, camera, devs, count, &fnusb_is_motor);
-		if (motor == NULL)
-		{
-			FN_ERROR("Could not find device sibling\n");
-			res = -1;
-			goto failure;
-		}
+		audio = fnusb_find_sibling_device(ctx, camera, devs, count, &fnusb_is_audio);
 
-		struct libusb_device_descriptor desc;
-		res = libusb_get_device_descriptor(motor, &desc);
-		if (res < 0)
-		{
-			FN_ERROR("Could not query device: %s\n", libusb_error_name(res));
-			goto failure;
-		}
-
-		res = libusb_open(motor, &dev->usb_motor.dev);
-		if (res < 0 || !dev->usb_motor.dev)
-		{
-			FN_ERROR("Could not open device: %s\n", libusb_error_name(res));
-			dev->usb_motor.dev = NULL;
-			goto failure;
-		}
-
-		res = libusb_claim_interface(dev->usb_motor.dev, 0);
-		if (res < 0)
-		{
-			FN_ERROR("Could not claim interface: %s\n", libusb_error_name(res));
-			libusb_close(dev->usb_motor.dev);
-			dev->usb_motor.dev = NULL;
-			goto failure;
-		}
-
-		dev->usb_motor.VID = desc.idVendor;
-		dev->usb_motor.PID = desc.idProduct;
-	}
-
-	// FIND AUDIO
-	if (ctx->enabled_subdevices & FREENECT_DEVICE_AUDIO)
-	{
-		libusb_device *audio = fnusb_find_sibling_device(ctx, camera, devs, count, &fnusb_is_audio);
 		if (audio == NULL)
 		{
 			FN_ERROR("Could not find device sibling\n");
 			res = -1;
 			goto failure;
 		}
+	}
 
+	// Sets up the device to be used with the motor control by audio if it is not the 1414 kinect. Also necessary to keep camera alive.
+	if (camera_desc.idProduct == PID_K4W_CAMERA || camera_desc.bcdDevice != fn_le32(267))
+	{
+		freenect_device_flags requested_devices = ctx->enabled_subdevices;
+
+		// Not the 1414 kinect so remove the motor flag, this should preserve the audio flag if set
+		ctx->enabled_subdevices = (freenect_device_flags)(ctx->enabled_subdevices & ~FREENECT_DEVICE_MOTOR);
+
+		dev->device_does_motor_control_with_audio = 1;
+		// for newer devices we need to enable the audio device for keeping camera alive and for motor control
+		// we only do this though if one of them have been requested.
+		if ((requested_devices & FREENECT_DEVICE_CAMERA || requested_devices & FREENECT_DEVICE_MOTOR) && (requested_devices & FREENECT_DEVICE_AUDIO) == 0)
+		{
+			ctx->enabled_subdevices = (freenect_device_flags)(ctx->enabled_subdevices | FREENECT_DEVICE_AUDIO);
+		}
+	}
+
+	// ENABLE AUDIO
+	if (ctx->enabled_subdevices & FREENECT_DEVICE_AUDIO)
+	{
 		struct libusb_device_descriptor desc;
 		res = libusb_get_device_descriptor(audio, &desc);
 		if (res < 0)
@@ -707,6 +643,80 @@ FN_INTERNAL int fnusb_open_subdevices(freenect_device *dev, int index)
 
 			free(audio_serial);
 		}
+	}
+
+	// ENABLE CAMERA
+	if (ctx->enabled_subdevices & FREENECT_DEVICE_CAMERA)
+	{
+		res = libusb_open(camera, &dev->usb_cam.dev);
+		if (res < 0 || !dev->usb_cam.dev)
+		{
+			FN_ERROR("Could not open camera: %s\n", libusb_error_name(res));
+			dev->usb_cam.dev = NULL;
+			goto failure;
+		}
+
+		if (camera_desc.idProduct == PID_K4W_CAMERA || camera_desc.bcdDevice != fn_le32(267))
+		{
+			ctx->zero_plane_res = 334;
+
+			// set the LED for non 1414 devices to keep the camera alive for some systems which get freezes
+			fnusb_keep_alive_led(ctx, audio);
+		}
+		else
+		{
+			// The good old kinect that tilts and tweets
+			ctx->zero_plane_res = 322;
+		}
+
+		dev->usb_cam.VID = camera_desc.idVendor;
+		dev->usb_cam.PID = camera_desc.idProduct;
+
+		res = fnusb_claim_camera(dev);
+		if (res < 0)
+		{
+			goto failure;
+		}
+	}
+
+	// FIND AND ENABLE MOTOR
+	if (ctx->enabled_subdevices & FREENECT_DEVICE_MOTOR)
+	{
+		libusb_device *motor = fnusb_find_sibling_device(ctx, camera, devs, count, &fnusb_is_motor);
+		if (motor == NULL)
+		{
+			FN_ERROR("Could not find device sibling\n");
+			res = -1;
+			goto failure;
+		}
+
+		struct libusb_device_descriptor desc;
+		res = libusb_get_device_descriptor(motor, &desc);
+		if (res < 0)
+		{
+			FN_ERROR("Could not query device: %s\n", libusb_error_name(res));
+			goto failure;
+		}
+
+		res = libusb_open(motor, &dev->usb_motor.dev);
+		if (res < 0 || !dev->usb_motor.dev)
+		{
+			FN_ERROR("Could not open device: %s\n", libusb_error_name(res));
+			dev->usb_motor.dev = NULL;
+			goto failure;
+		}
+
+		res = libusb_claim_interface(dev->usb_motor.dev, 0);
+		if (res < 0)
+		{
+			FN_ERROR("Could not claim interface: %s\n", libusb_error_name(res));
+			libusb_close(dev->usb_motor.dev);
+			dev->usb_motor.dev = NULL;
+			goto failure;
+		}
+
+		dev->usb_motor.VID = desc.idVendor;
+		dev->usb_motor.PID = desc.idProduct;
 	}
 
 	if ((dev->usb_cam.dev || !(ctx->enabled_subdevices & FREENECT_DEVICE_CAMERA)) && (dev->usb_motor.dev || !(ctx->enabled_subdevices & FREENECT_DEVICE_MOTOR)) && (dev->usb_audio.dev || !(ctx->enabled_subdevices & FREENECT_DEVICE_AUDIO)))
