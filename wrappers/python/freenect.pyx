@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!python
+# cython: language_level=3
 #
 # Copyright (c) 2010 Brandyn White (bwhite@dappervision.com)
 #                    Andrew Miller (amiller@dappervision.com)
