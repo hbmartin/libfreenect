@@ -12,7 +12,7 @@ jobs:
           sudo apt-get install -y libglu1-mesa-dev freeglut3-dev mesa-common-dev
           sudo apt-get install -y build-essential python3-dev
 
-          pip install cython opencv-python numpy
+          pip install Cython==0.29.37 opencv-python numpy
           export LIBUSB_1_INCLUDE_DIR=/usr/include/libusb-1.0/
           mkdir build
           cd build
