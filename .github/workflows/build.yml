@@ -9,13 +9,16 @@ jobs:
       - name: Run build
         run: |
           sudo apt-get install -y libusb-1.0-0-dev
+          sudo apt-get install libglu1-mesa-dev freeglut3-dev mesa-common-dev
           export LIBUSB_1_INCLUDE_DIR=/usr/include/libusb-1.0/
           mkdir build
           cd build
-          cmake -L ..
+          cmake -L ..-DBUILD_PYTHON3=ON
           make
+          rm -r src
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
+          name: build-${{ github.run_id }}
           overwrite: true
           path: build
