@@ -20,6 +20,8 @@ jobs:
           make
           rm -r src
           cd ../wrappers/python
+          ls -l ../../build/lib/
+          export LIBRARY_PATH=$LIBRARY_PATH:../../build/lib/
           python setup.py build_ext --inplace
           ls -ltr
       - name: Upload Build Artifact
