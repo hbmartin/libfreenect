@@ -8,6 +8,8 @@ jobs:
       - uses: actions/checkout@v3
       - name: Run build
         run: |
+          sudo apt-get install -y libusb-1.0-0-dev
+          export LIBUSB_1_INCLUDE_DIR=/usr/include/libusb-1.0/
           mkdir build
           cd build
           cmake -L ..
