@@ -19,6 +19,9 @@ jobs:
           cmake -L .. -DBUILD_PYTHON3=ON
           make
           rm -r src
+          cd ../wrappers/python
+          python setup.py build_ext --inplace
+          ls -ltr
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
