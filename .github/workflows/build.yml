@@ -13,7 +13,7 @@ jobs:
           export LIBUSB_1_INCLUDE_DIR=/usr/include/libusb-1.0/
           mkdir build
           cd build
-          cmake -L ..-DBUILD_PYTHON3=ON
+          cmake -L .. -DBUILD_PYTHON3=ON
           make
           rm -r src
       - name: Upload Build Artifact
